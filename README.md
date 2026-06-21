@@ -11,8 +11,29 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 1. If there is no currently-valid proxy, the service downloads the public proxy
    list from
    [`SoliSpirit/mtproto/all_proxies.txt`](https://github.com/SoliSpirit/mtproto/blob/master/all_proxies.txt).
-2. It checks the proxies **in parallel** and serves the **first one that is
-   connectable** (a TCP connection to `server:port` succeeds).
+2. It serves the **first usable** proxy, found with a two-stage strategy:
+   1. **Connect measurement (parallel)** — every proxy is dialed at once
+      (bounded by `concurrency`) and its TCP connect time is measured. Proxies
+      that don't connect within `dial-timeout` are discarded.
+   2. **Telegram check (serial, fast first)** — a real Telegram client (via
+      [`gotd/td`](https://github.com/gotd/td)) verifies candidates **one-by-one**:
+      it connects to a Telegram data center *through* the proxy, completes the
+      MTProto handshake and makes one unauthenticated call. This proves a
+      Telegram client can actually use the proxy. It uses an in-memory session,
+      so no account, phone number or login code is involved — only an
+      `api_id`/`api_hash`.
+
+   Verification is deliberately **not** parallel (it shares one set of
+   credentials), and candidates are tried in two passes:
+   - **First pass — fast proxies** (connect time ≤ `fast-threshold`, default
+     `1s`), streamed in as soon as they connect so verification starts before
+     the whole list is dialed.
+   - **Second pass — slow proxies** (`fast-threshold` < connect ≤ `dial-timeout`),
+     fastest first, attempted only if no fast proxy was usable. Fast proxies that
+     already failed verification are not retried.
+
+   The **first** proxy that passes verification wins and the rest of the work is
+   cancelled.
 3. If **none** of the proxies work, it waits **30 minutes** and then checks
    whether the published list has changed:
    - if it **changed**, it re-checks the fresh list;
@@ -22,6 +43,50 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 
 Update detection uses an HTTP conditional request (`ETag`) when the server
 supports it, falling back to a SHA-256 comparison of the file contents.
+
+## Telegram API credentials (required)
+
+The second-stage check needs a Telegram `api_id`/`api_hash`. Get them for free
+from [my.telegram.org](https://my.telegram.org) → *API development tools*, then
+provide them via environment variables (preferred) or flags:
+
+```console
+$env:TG_API_ID  = "123456"
+$env:TG_API_HASH = "0123456789abcdef0123456789abcdef"
+```
+
+The service refuses to run without them. For **service mode**, set them as
+**machine** environment variables so the service account can read them — they are
+deliberately *not* stored in the service definition.
+
+## Config file (handy for local debugging)
+
+Instead of env vars or flags you can put settings in a JSON file. Copy the
+example and edit it:
+
+```console
+copy config.example.json config.json
+```
+
+`config.json` is loaded automatically from the working directory when present
+(or point at one with `-config path\to\file.json`). It can hold any option,
+including the credentials:
+
+```json
+{
+  "tgApiId": 123456,
+  "tgApiHash": "0123456789abcdef0123456789abcdef",
+  "httpAddr": "127.0.0.1:8080",
+  "pollInterval": "30m",
+  "dialTimeout": "5s",
+  "concurrency": 200
+}
+```
+
+Durations are strings like `"30m"` / `"5s"`. Settings are resolved with the
+precedence **flag > environment variable > config file > built-in default**, so
+a flag always overrides the file. `config.json` is git-ignored (it may contain
+your credentials); `config.example.json` is committed as a template.
 
 ## HTTP API
 
@@ -50,9 +115,11 @@ go build -o mtproto-polling-service.exe .
 
 ## Run as a console app
 
-Just run the binary; it runs interactively and logs to the console:
+Set the credentials, then run the binary; it runs interactively and logs to the
+console:
 
 ```console
+$env:TG_API_ID = "123456"; $env:TG_API_HASH = "..."
 mtproto-polling-service.exe
 ```
 
@@ -74,6 +141,29 @@ configure it like this:
 mtproto-polling-service.exe -http-addr 127.0.0.1:9000 -poll-interval 30m -service install
 ```
 
+### Credentials for the service
+
+A Windows service runs from `system32` and under a service account, so it sees
+neither your user environment variables nor a relative `./config.json`. Pick one:
+
+- **Config file (simplest):** install with `-config`, and the **absolute** path
+  is baked into the service definition so the service reads the same file
+  (including the credentials) wherever it runs:
+
+  ```console
+  mtproto-polling-service.exe -config C:\ProgramData\mtproto\config.json -service install
+  ```
+
+- **Machine environment variables:** set them at machine scope (so the service
+  account inherits them) before starting:
+
+  ```console
+  [Environment]::SetEnvironmentVariable("TG_API_ID",  "123456", "Machine")
+  [Environment]::SetEnvironmentVariable("TG_API_HASH","...",     "Machine")
+  ```
+
+The install command prints which of these the service will use.
+
 ## Configuration flags
 
 | Flag | Default | Description |
@@ -84,8 +174,12 @@ mtproto-polling-service.exe -http-addr 127.0.0.1:9000 -poll-interval 30m -servic
 | `-poll-interval` | `30m` | Wait between checks when no proxy works. |
 | `-retry-interval` | `1m` | Backoff when the list cannot be downloaded. |
 | `-validate-interval` | `2m` | How often the current proxy is re-verified. |
-| `-dial-timeout` | `5s` | Per-proxy TCP connect timeout. |
+| `-dial-timeout` | `5s` | Per-proxy TCP connect timeout (the slow ceiling). |
+| `-fast-threshold` | `1s` | Max connect time for a proxy to be tried in the first pass. |
 | `-concurrency` | `200` | Max proxies dialed in parallel. |
+| `-verify-timeout` | `15s` | Timeout for the Telegram client verification of a proxy. |
+| `-tg-api-id` | `$TG_API_ID` | Telegram `api_id` (required). |
+| `-tg-api-hash` | `$TG_API_HASH` | Telegram `api_hash` (required). |
 
 ## Test
 

@@ -144,7 +144,7 @@ func (m *Manager) monitor(ctx context.Context, p Proxy) error {
 		if err := sleep(ctx, m.cfg.ValidateInterval); err != nil {
 			return err
 		}
-		if !m.checker.Connectable(ctx, p) {
+		if !m.checker.Usable(ctx, p) {
 			return nil
 		}
 	}

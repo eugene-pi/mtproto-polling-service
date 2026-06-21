@@ -16,6 +16,9 @@ coverage.*
 go.work
 go.work.sum
 
+# Local config (may contain Telegram api_id/api_hash) — keep config.example.json
+/config.json
+
 # Editors / OS
 .idea/
 .vscode/
