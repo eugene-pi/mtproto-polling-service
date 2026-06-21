@@ -27,6 +27,7 @@ type FileConfig struct {
 	VerifyTimeout    *string `json:"verifyTimeout,omitempty"`
 	TGAPIID          *int    `json:"tgApiId,omitempty"`
 	TGAPIHash        *string `json:"tgApiHash,omitempty"`
+	OpenBrowser      *bool   `json:"openBrowser,omitempty"`
 }
 
 // LoadFileConfig reads and parses a JSON config file. Unknown fields are
@@ -76,6 +77,18 @@ func ResolveInt(flagSet bool, flagVal, env int, file *int) int {
 		return flagVal
 	case env != 0:
 		return env
+	case file != nil:
+		return *file
+	default:
+		return flagVal
+	}
+}
+
+// ResolveBool resolves a boolean setting. It has no environment source.
+func ResolveBool(flagSet bool, flagVal bool, file *bool) bool {
+	switch {
+	case flagSet:
+		return flagVal
 	case file != nil:
 		return *file
 	default:

@@ -31,6 +31,7 @@ func main() {
 		fastThreshold    = flag.Duration("fast-threshold", time.Second, "max connect time for a proxy to be tried in the first pass")
 		concurrency      = flag.Int("concurrency", 200, "max proxies dialed in parallel")
 		verifyTimeout    = flag.Duration("verify-timeout", 15*time.Second, "timeout for the Telegram client verification of a proxy")
+		openBrowser      = flag.Bool("open-browser", true, "open each newly selected proxy URL in the default browser")
 		tgAPIID          = flag.Int("tg-api-id", 0, "Telegram api_id (required; from config file, $TG_API_ID, or this flag)")
 		tgAPIHash        = flag.String("tg-api-hash", "", "Telegram api_hash (required; from config file, $TG_API_HASH, or this flag)")
 	)
@@ -58,6 +59,7 @@ func main() {
 		DialTimeout:   mustDuration("dial-timeout", set["dial-timeout"], *dialTimeout, fc.DialTimeout),
 		FastThreshold: mustDuration("fast-threshold", set["fast-threshold"], *fastThreshold, fc.FastThreshold),
 		VerifyTimeout: mustDuration("verify-timeout", set["verify-timeout"], *verifyTimeout, fc.VerifyTimeout),
+		OpenBrowser:   app.ResolveBool(set["open-browser"], *openBrowser, fc.OpenBrowser),
 	}
 
 	// Telegram credentials are required for the second-stage proxy verification.
@@ -84,6 +86,8 @@ func main() {
 		"-fast-threshold", cfg.FastThreshold.String(),
 		"-concurrency", strconv.Itoa(cfg.Concurrency),
 		"-verify-timeout", cfg.VerifyTimeout.String(),
+		// Bool flags must use the -flag=value form to express false.
+		fmt.Sprintf("-open-browser=%t", cfg.OpenBrowser),
 	}
 	if configFile != "" {
 		args = append(args, "-config", configFile)
