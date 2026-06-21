@@ -40,9 +40,30 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
    - if it is **unchanged**, it waits another 30 minutes and checks again.
 4. Once a working proxy is found it is served until it stops responding, at which
    point the search starts over.
+5. Whenever the served proxy **changes** (including the first one found), its
+   `t.me/proxy?...` URL is opened in the default browser, so one click adds it to
+   Telegram. This can be turned off with `-open-browser=false`. See
+   [Opening the proxy in a browser](#opening-the-proxy-in-a-browser) for how this
+   works under a Windows service.
 
 Update detection uses an HTTP conditional request (`ETag`) when the server
 supports it, falling back to a SHA-256 comparison of the file contents.
+
+## Opening the proxy in a browser
+
+When the selected proxy changes, the service opens its URL in the default
+browser. How that happens depends on how the program runs:
+
+- **Console mode** — the URL is opened in your current session directly.
+- **Windows service** — a service runs in the isolated *session 0* with no
+  desktop, so it cannot simply launch a browser. Instead the service (running as
+  **LocalSystem**, the default) opens the URL **in the session of the user
+  currently logged in at the console**, using the Windows token APIs
+  (`WTSQueryUserToken` + `CreateProcessAsUser`). LocalSystem holds the privileges
+  this requires; running the service under a normal user account would *not* make
+  the browser appear, so keep the default account. If no user is logged in, the
+  open is skipped and logged — the proxy is still served and available on
+  `GET /proxy`.
 
 ## Telegram API credentials (required)
 
@@ -178,6 +199,7 @@ The install command prints which of these the service will use.
 | `-fast-threshold` | `1s` | Max connect time for a proxy to be tried in the first pass. |
 | `-concurrency` | `200` | Max proxies dialed in parallel. |
 | `-verify-timeout` | `15s` | Timeout for the Telegram client verification of a proxy. |
+| `-open-browser` | `true` | Open each newly selected proxy URL in the default browser. |
 | `-tg-api-id` | `$TG_API_ID` | Telegram `api_id` (required). |
 | `-tg-api-hash` | `$TG_API_HASH` | Telegram `api_hash` (required). |
 

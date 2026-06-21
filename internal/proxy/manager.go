@@ -48,6 +48,11 @@ type Manager struct {
 	checker *Checker
 	log     Logger
 
+	// OnNewProxy, when set, is called whenever the served proxy changes to a
+	// different one (including the first proxy found). It runs on the manager's
+	// goroutine, so it must not block.
+	OnNewProxy func(Proxy)
+
 	mu      sync.RWMutex
 	current *Proxy
 }
@@ -81,6 +86,7 @@ func (m *Manager) setCurrent(p *Proxy) {
 // Run blocks until ctx is cancelled, continuously ensuring a working proxy is
 // available. It returns ctx.Err() on shutdown.
 func (m *Manager) Run(ctx context.Context) error {
+	var lastURL string
 	for {
 		p, err := m.findWorking(ctx)
 		if err != nil {
@@ -89,6 +95,13 @@ func (m *Manager) Run(ctx context.Context) error {
 
 		m.setCurrent(p)
 		m.log.Infof("serving working proxy %s", p.Address())
+
+		if p.URL != lastURL {
+			lastURL = p.URL
+			if m.OnNewProxy != nil {
+				m.OnNewProxy(*p)
+			}
+		}
 
 		// Hold this proxy until it stops connecting or we are shut down.
 		if err := m.monitor(ctx, *p); err != nil {

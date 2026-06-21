@@ -10,6 +10,7 @@ import (
 
 	"github.com/kardianos/service"
 
+	"github.com/eugene-pi/mtproto-polling-service/internal/browser"
 	"github.com/eugene-pi/mtproto-polling-service/internal/httpapi"
 	"github.com/eugene-pi/mtproto-polling-service/internal/proxy"
 )
@@ -30,6 +31,9 @@ type Config struct {
 	TGAPIID       int
 	TGAPIHash     string
 	VerifyTimeout time.Duration
+
+	// OpenBrowser opens each newly selected proxy URL in the default browser.
+	OpenBrowser bool
 }
 
 // Program implements service.Interface.
@@ -70,6 +74,20 @@ func (p *Program) Start(s service.Service) error {
 		RetryInterval:    p.cfg.RetryInterval,
 		ValidateInterval: p.cfg.ValidateInterval,
 	}, source, checker, p.log)
+
+	if p.cfg.OpenBrowser {
+		interactive := service.Interactive()
+		p.manager.OnNewProxy = func(px proxy.Proxy) {
+			// Launch asynchronously so the manager loop is never blocked.
+			go func() {
+				p.log.Infof("opening proxy %s in browser", px.Address())
+				if err := browser.Open(px.URL, interactive); err != nil {
+					p.log.Errorf("failed to open proxy in browser: %v", err)
+				}
+			}()
+		}
+	}
+
 	p.api = httpapi.New(p.cfg.HTTPAddr, p.manager)
 
 	ctx, cancel := context.WithCancel(context.Background())
