@@ -128,6 +128,29 @@ configure it like this:
 mtproto-polling-service.exe -http-addr 127.0.0.1:9000 -poll-interval 30m -service install
 ```
 
+### Credentials for the service
+
+A Windows service runs from `system32` and under a service account, so it sees
+neither your user environment variables nor a relative `./config.json`. Pick one:
+
+- **Config file (simplest):** install with `-config`, and the **absolute** path
+  is baked into the service definition so the service reads the same file
+  (including the credentials) wherever it runs:
+
+  ```console
+  mtproto-polling-service.exe -config C:\ProgramData\mtproto\config.json -service install
+  ```
+
+- **Machine environment variables:** set them at machine scope (so the service
+  account inherits them) before starting:
+
+  ```console
+  [Environment]::SetEnvironmentVariable("TG_API_ID",  "123456", "Machine")
+  [Environment]::SetEnvironmentVariable("TG_API_HASH","...",     "Machine")
+  ```
+
+The install command prints which of these the service will use.
+
 ## Configuration flags
 
 | Flag | Default | Description |

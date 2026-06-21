@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +38,10 @@ func main() {
 	set := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
-	fc := loadConfig(*configPath, set["config"])
+	// configFile is the absolute path of the config file that was loaded, or ""
+	// if none. It is baked into the service definition so an installed service
+	// reads the same file from its own (system32) working directory.
+	fc, configFile := loadConfig(*configPath, set["config"])
 
 	// Resolve every setting with precedence: flag > env var > config file > default.
 	cfg := app.Config{
@@ -63,24 +67,30 @@ func main() {
 
 	prg := app.NewProgram(cfg)
 
+	// Bake the resolved settings into the service definition. A config file (if
+	// one was loaded) is referenced by absolute path so the service can read it
+	// — including the credentials, which are otherwise NOT stored in the service
+	// arguments (they would land in the registry in clear text). Without a config
+	// file, set TG_API_ID / TG_API_HASH as machine environment variables instead.
+	args := []string{
+		"-list-url", cfg.ListURL,
+		"-http-addr", cfg.HTTPAddr,
+		"-poll-interval", cfg.PollInterval.String(),
+		"-retry-interval", cfg.RetryInterval.String(),
+		"-validate-interval", cfg.ValidateInterval.String(),
+		"-dial-timeout", cfg.DialTimeout.String(),
+		"-concurrency", strconv.Itoa(cfg.Concurrency),
+		"-verify-timeout", cfg.VerifyTimeout.String(),
+	}
+	if configFile != "" {
+		args = append(args, "-config", configFile)
+	}
+
 	svcConfig := &service.Config{
 		Name:        "MTProtoPollingService",
 		DisplayName: "MTProto Polling Service",
 		Description: "Finds a working Telegram MTProto proxy and serves it over a local HTTP endpoint.",
-		// Note: Telegram credentials are deliberately NOT baked into the service
-		// arguments (they would be stored in the registry in clear text). Set
-		// TG_API_ID / TG_API_HASH as machine environment variables instead so
-		// the service account picks them up.
-		Arguments: []string{
-			"-list-url", cfg.ListURL,
-			"-http-addr", cfg.HTTPAddr,
-			"-poll-interval", cfg.PollInterval.String(),
-			"-retry-interval", cfg.RetryInterval.String(),
-			"-validate-interval", cfg.ValidateInterval.String(),
-			"-dial-timeout", cfg.DialTimeout.String(),
-			"-concurrency", strconv.Itoa(cfg.Concurrency),
-			"-verify-timeout", cfg.VerifyTimeout.String(),
-		},
+		Arguments:   args,
 	}
 
 	svc, err := service.New(prg, svcConfig)
@@ -94,6 +104,15 @@ func main() {
 				*control, err, strings.Join(service.ControlAction[:], ", "))
 		}
 		fmt.Printf("service action %q completed\n", *control)
+		if *control == "install" {
+			if configFile != "" {
+				fmt.Printf("service will read configuration (including credentials) from %s\n", configFile)
+			} else {
+				fmt.Println("note: no config file in use — set TG_API_ID/TG_API_HASH as machine " +
+					"environment variables, or reinstall with -config <path>, so the service can " +
+					"obtain Telegram credentials.")
+			}
+		}
 		return
 	}
 
@@ -106,19 +125,25 @@ func main() {
 
 // loadConfig loads the JSON config file. When -config is given explicitly the
 // file must exist; otherwise the default ./config.json is loaded only if present.
-// It always returns a usable (possibly empty) FileConfig.
-func loadConfig(path string, explicit bool) *app.FileConfig {
+// It returns a usable (possibly empty) FileConfig and the absolute path of the
+// file that was loaded ("" when none).
+func loadConfig(path string, explicit bool) (*app.FileConfig, string) {
 	if path == "" {
 		path = app.DefaultConfigPath
 	}
 	fc, err := app.LoadFileConfig(path)
 	if err != nil {
 		if os.IsNotExist(err) && !explicit {
-			return &app.FileConfig{} // no default config file: that's fine
+			return &app.FileConfig{}, "" // no default config file: that's fine
 		}
 		fatalf("config: %v", err)
 	}
-	return fc
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		fatalf("config: resolve path %q: %v", path, err)
+	}
+	return fc, abs
 }
 
 // mustDuration resolves a duration setting or exits with a clear message when
