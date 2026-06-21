@@ -22,6 +22,7 @@ type Config struct {
 	RetryInterval    time.Duration
 	ValidateInterval time.Duration
 	DialTimeout      time.Duration
+	FastThreshold    time.Duration
 	Concurrency      int
 
 	// Telegram API credentials (required). They gate the second-stage check
@@ -62,7 +63,7 @@ func (p *Program) Start(s service.Service) error {
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	source := proxy.NewSource(p.cfg.ListURL, httpClient)
-	checker := proxy.NewChecker(p.cfg.DialTimeout, p.cfg.Concurrency)
+	checker := proxy.NewChecker(p.cfg.DialTimeout, p.cfg.FastThreshold, p.cfg.Concurrency)
 	checker.Verifier = verifier
 	p.manager = proxy.NewManager(proxy.Config{
 		PollInterval:     p.cfg.PollInterval,

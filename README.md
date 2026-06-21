@@ -11,19 +11,29 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 1. If there is no currently-valid proxy, the service downloads the public proxy
    list from
    [`SoliSpirit/mtproto/all_proxies.txt`](https://github.com/SoliSpirit/mtproto/blob/master/all_proxies.txt).
-2. It serves the **first usable** proxy, found with a two-stage pipeline:
-   1. **TCP connect (parallel)** — connectivity to `server:port` is checked for
-      many proxies at once as a fast filter. Connectable proxies are funnelled
-      into a single channel.
-   2. **Telegram check (serial)** — a real Telegram client (via
-      [`gotd/td`](https://github.com/gotd/td)) verifies the connectable proxies
-      **one-by-one**: it connects to a Telegram data center *through* the proxy,
-      completes the MTProto handshake and makes one unauthenticated call. This
-      proves a Telegram client can actually use the proxy. It uses an in-memory
-      session, so no account, phone number or login code is involved — only an
-      `api_id`/`api_hash`. Verification is deliberately not parallel, since it
-      shares one set of credentials; the **first** proxy that passes wins and
-      the rest of the work is cancelled.
+2. It serves the **first usable** proxy, found with a two-stage strategy:
+   1. **Connect measurement (parallel)** — every proxy is dialed at once
+      (bounded by `concurrency`) and its TCP connect time is measured. Proxies
+      that don't connect within `dial-timeout` are discarded.
+   2. **Telegram check (serial, fast first)** — a real Telegram client (via
+      [`gotd/td`](https://github.com/gotd/td)) verifies candidates **one-by-one**:
+      it connects to a Telegram data center *through* the proxy, completes the
+      MTProto handshake and makes one unauthenticated call. This proves a
+      Telegram client can actually use the proxy. It uses an in-memory session,
+      so no account, phone number or login code is involved — only an
+      `api_id`/`api_hash`.
+
+   Verification is deliberately **not** parallel (it shares one set of
+   credentials), and candidates are tried in two passes:
+   - **First pass — fast proxies** (connect time ≤ `fast-threshold`, default
+     `1s`), streamed in as soon as they connect so verification starts before
+     the whole list is dialed.
+   - **Second pass — slow proxies** (`fast-threshold` < connect ≤ `dial-timeout`),
+     fastest first, attempted only if no fast proxy was usable. Fast proxies that
+     already failed verification are not retried.
+
+   The **first** proxy that passes verification wins and the rest of the work is
+   cancelled.
 3. If **none** of the proxies work, it waits **30 minutes** and then checks
    whether the published list has changed:
    - if it **changed**, it re-checks the fresh list;
@@ -164,7 +174,8 @@ The install command prints which of these the service will use.
 | `-poll-interval` | `30m` | Wait between checks when no proxy works. |
 | `-retry-interval` | `1m` | Backoff when the list cannot be downloaded. |
 | `-validate-interval` | `2m` | How often the current proxy is re-verified. |
-| `-dial-timeout` | `5s` | Per-proxy TCP connect timeout. |
+| `-dial-timeout` | `5s` | Per-proxy TCP connect timeout (the slow ceiling). |
+| `-fast-threshold` | `1s` | Max connect time for a proxy to be tried in the first pass. |
 | `-concurrency` | `200` | Max proxies dialed in parallel. |
 | `-verify-timeout` | `15s` | Timeout for the Telegram client verification of a proxy. |
 | `-tg-api-id` | `$TG_API_ID` | Telegram `api_id` (required). |

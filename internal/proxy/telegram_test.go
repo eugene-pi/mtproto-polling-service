@@ -49,7 +49,7 @@ func TestCheckerUsesVerifier(t *testing.T) {
 	a := newListener(t)
 	b := newListener(t)
 
-	checker := NewChecker(time.Second, 10)
+	checker := NewChecker(time.Second, time.Second, 10)
 	checker.Verifier = stubVerifier{allow: map[string]bool{b.Address(): true}}
 
 	got := checker.FindFirstWorking(context.Background(), []Proxy{a, b})

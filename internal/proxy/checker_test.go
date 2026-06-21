@@ -17,7 +17,7 @@ func (f verifierFunc) Verify(ctx context.Context, p Proxy) error { return f(ctx,
 func TestFindFirstWorking(t *testing.T) {
 	reachable := newListener(t)
 
-	checker := NewChecker(time.Second, 10)
+	checker := NewChecker(time.Second, time.Second, 10)
 	proxies := []Proxy{
 		// Unreachable: TEST-NET-1 address that should not connect quickly.
 		{Server: "192.0.2.1", Port: 9},
@@ -88,7 +88,7 @@ func TestVerifierRunsSerially(t *testing.T) {
 		return errors.New("never usable") // force every proxy to be verified
 	})
 
-	checker := NewChecker(time.Second, 16)
+	checker := NewChecker(time.Second, time.Second, 16)
 	checker.Verifier = verifier
 
 	if got := checker.FindFirstWorking(context.Background(), proxies); got != nil {
@@ -106,10 +106,86 @@ func TestVerifierRunsSerially(t *testing.T) {
 }
 
 func TestFindFirstWorkingNone(t *testing.T) {
-	checker := NewChecker(200*time.Millisecond, 10)
+	checker := NewChecker(200*time.Millisecond, time.Second, 10)
 	proxies := []Proxy{{Server: "192.0.2.1", Port: 9}}
 	if got := checker.FindFirstWorking(context.Background(), proxies); got != nil {
 		t.Fatalf("expected nil, got %+v", got)
+	}
+}
+
+// fakeConnect builds a connect probe from a fixed per-address timing table.
+// Addresses absent from the table are treated as unreachable.
+func fakeConnect(times map[string]time.Duration) func(context.Context, Proxy) (time.Duration, bool) {
+	return func(_ context.Context, p Proxy) (time.Duration, bool) {
+		d, ok := times[p.Address()]
+		return d, ok
+	}
+}
+
+// TestFastTriedBeforeSlow checks that fast proxies are verified before slow ones
+// and that a slow proxy can still win when every fast proxy fails verification.
+func TestFastTriedBeforeSlow(t *testing.T) {
+	fastBad := Proxy{Server: "10.0.0.1", Port: 1}  // connects fast, fails verify
+	slowGood := Proxy{Server: "10.0.0.2", Port: 2} // connects slow, passes verify
+
+	checker := NewChecker(5*time.Second, time.Second, 8)
+	checker.connect = fakeConnect(map[string]time.Duration{
+		fastBad.Address():  100 * time.Millisecond,
+		slowGood.Address(): 3 * time.Second,
+	})
+
+	var order []string
+	var mu sync.Mutex
+	checker.Verifier = verifierFunc(func(_ context.Context, p Proxy) error {
+		mu.Lock()
+		order = append(order, p.Address())
+		mu.Unlock()
+		if p.Address() == slowGood.Address() {
+			return nil
+		}
+		return errors.New("nope")
+	})
+
+	got := checker.FindFirstWorking(context.Background(), []Proxy{slowGood, fastBad})
+	if got == nil || got.Address() != slowGood.Address() {
+		t.Fatalf("expected slow proxy to win, got %+v", got)
+	}
+	if len(order) != 2 || order[0] != fastBad.Address() || order[1] != slowGood.Address() {
+		t.Fatalf("expected fast verified before slow, got %v", order)
+	}
+}
+
+// TestSlowSkippedWhenFastWins checks that a fast usable proxy wins and the slow
+// proxies are never verified.
+func TestSlowSkippedWhenFastWins(t *testing.T) {
+	fastGood := Proxy{Server: "10.0.0.1", Port: 1}
+	slow := Proxy{Server: "10.0.0.2", Port: 2}
+	dead := Proxy{Server: "10.0.0.3", Port: 3}
+
+	checker := NewChecker(5*time.Second, time.Second, 8)
+	checker.connect = fakeConnect(map[string]time.Duration{
+		fastGood.Address(): 50 * time.Millisecond,
+		slow.Address():     3 * time.Second,
+		// dead is absent -> never connects
+	})
+
+	var verified []string
+	var mu sync.Mutex
+	checker.Verifier = verifierFunc(func(_ context.Context, p Proxy) error {
+		mu.Lock()
+		verified = append(verified, p.Address())
+		mu.Unlock()
+		return nil // anything verified is usable
+	})
+
+	got := checker.FindFirstWorking(context.Background(), []Proxy{fastGood, slow, dead})
+	if got == nil || got.Address() != fastGood.Address() {
+		t.Fatalf("expected fast proxy to win, got %+v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(verified) != 1 || verified[0] != fastGood.Address() {
+		t.Fatalf("slow/dead proxies must not be verified; verified %v", verified)
 	}
 }
 

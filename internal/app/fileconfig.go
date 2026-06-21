@@ -22,6 +22,7 @@ type FileConfig struct {
 	RetryInterval    *string `json:"retryInterval,omitempty"`
 	ValidateInterval *string `json:"validateInterval,omitempty"`
 	DialTimeout      *string `json:"dialTimeout,omitempty"`
+	FastThreshold    *string `json:"fastThreshold,omitempty"`
 	Concurrency      *int    `json:"concurrency,omitempty"`
 	VerifyTimeout    *string `json:"verifyTimeout,omitempty"`
 	TGAPIID          *int    `json:"tgApiId,omitempty"`

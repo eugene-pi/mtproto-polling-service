@@ -9,6 +9,7 @@
   "retryInterval": "1m",
   "validateInterval": "2m",
   "dialTimeout": "5s",
+  "fastThreshold": "1s",
   "verifyTimeout": "15s",
   "concurrency": 200
 }

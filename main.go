@@ -28,6 +28,7 @@ func main() {
 		retryInterval    = flag.Duration("retry-interval", time.Minute, "backoff when the list cannot be downloaded")
 		validateInterval = flag.Duration("validate-interval", 2*time.Minute, "how often to re-verify the current proxy")
 		dialTimeout      = flag.Duration("dial-timeout", 5*time.Second, "per-proxy TCP connect timeout")
+		fastThreshold    = flag.Duration("fast-threshold", time.Second, "max connect time for a proxy to be tried in the first pass")
 		concurrency      = flag.Int("concurrency", 200, "max proxies dialed in parallel")
 		verifyTimeout    = flag.Duration("verify-timeout", 15*time.Second, "timeout for the Telegram client verification of a proxy")
 		tgAPIID          = flag.Int("tg-api-id", 0, "Telegram api_id (required; from config file, $TG_API_ID, or this flag)")
@@ -55,6 +56,7 @@ func main() {
 		ValidateInterval: mustDuration("validate-interval", set["validate-interval"],
 			*validateInterval, fc.ValidateInterval),
 		DialTimeout:   mustDuration("dial-timeout", set["dial-timeout"], *dialTimeout, fc.DialTimeout),
+		FastThreshold: mustDuration("fast-threshold", set["fast-threshold"], *fastThreshold, fc.FastThreshold),
 		VerifyTimeout: mustDuration("verify-timeout", set["verify-timeout"], *verifyTimeout, fc.VerifyTimeout),
 	}
 
@@ -79,6 +81,7 @@ func main() {
 		"-retry-interval", cfg.RetryInterval.String(),
 		"-validate-interval", cfg.ValidateInterval.String(),
 		"-dial-timeout", cfg.DialTimeout.String(),
+		"-fast-threshold", cfg.FastThreshold.String(),
 		"-concurrency", strconv.Itoa(cfg.Concurrency),
 		"-verify-timeout", cfg.VerifyTimeout.String(),
 	}
