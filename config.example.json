@@ -1,0 +1,14 @@
+{
+  "tgApiId": 123456,
+  "tgApiHash": "0123456789abcdef0123456789abcdef",
+
+  "httpAddr": "127.0.0.1:8080",
+  "listUrl": "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt",
+
+  "pollInterval": "30m",
+  "retryInterval": "1m",
+  "validateInterval": "2m",
+  "dialTimeout": "5s",
+  "verifyTimeout": "15s",
+  "concurrency": 200
+}
