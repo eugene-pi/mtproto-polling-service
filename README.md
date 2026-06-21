@@ -11,16 +11,19 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 1. If there is no currently-valid proxy, the service downloads the public proxy
    list from
    [`SoliSpirit/mtproto/all_proxies.txt`](https://github.com/SoliSpirit/mtproto/blob/master/all_proxies.txt).
-2. It checks the proxies **in parallel** and serves the **first usable** one. A
-   proxy is usable when it passes both stages:
-   1. **TCP connect** — a TCP connection to `server:port` succeeds (a fast
-      filter).
-   2. **Telegram check** — a real Telegram client (via
-      [`gotd/td`](https://github.com/gotd/td)) connects to a Telegram data
-      center *through* the proxy, completes the MTProto handshake and makes one
-      unauthenticated call. This proves a Telegram client can actually use the
-      proxy. It uses an in-memory session, so no account, phone number or login
-      code is involved — only an `api_id`/`api_hash`.
+2. It serves the **first usable** proxy, found with a two-stage pipeline:
+   1. **TCP connect (parallel)** — connectivity to `server:port` is checked for
+      many proxies at once as a fast filter. Connectable proxies are funnelled
+      into a single channel.
+   2. **Telegram check (serial)** — a real Telegram client (via
+      [`gotd/td`](https://github.com/gotd/td)) verifies the connectable proxies
+      **one-by-one**: it connects to a Telegram data center *through* the proxy,
+      completes the MTProto handshake and makes one unauthenticated call. This
+      proves a Telegram client can actually use the proxy. It uses an in-memory
+      session, so no account, phone number or login code is involved — only an
+      `api_id`/`api_hash`. Verification is deliberately not parallel, since it
+      shares one set of credentials; the **first** proxy that passes wins and
+      the rest of the work is cancelled.
 3. If **none** of the proxies work, it waits **30 minutes** and then checks
    whether the published list has changed:
    - if it **changed**, it re-checks the fresh list;

@@ -71,30 +71,60 @@ func (c *Checker) Usable(ctx context.Context, p Proxy) bool {
 	return true
 }
 
-// FindFirstWorking checks the proxies in parallel (bounded by Concurrency) and
-// returns the first usable one (see Usable). Remaining attempts are cancelled as
-// soon as a winner is found. It returns nil if none are usable or ctx is
-// cancelled.
+// FindFirstWorking returns the first usable proxy, or nil if none are usable or
+// ctx is cancelled.
+//
+// The two stages run with different concurrency on purpose. TCP connectivity is
+// cheap, so it is checked in parallel (bounded by Concurrency). The Verifier
+// stage (e.g. a real Telegram client connection) is expensive and shares one set
+// of credentials, so it must not run many at once: connectable proxies are
+// funnelled through a single channel and verified strictly one-by-one. The first
+// proxy that passes verification wins and all remaining work is cancelled.
 func (c *Checker) FindFirstWorking(ctx context.Context, proxies []Proxy) *Proxy {
 	if len(proxies) == 0 {
 		return nil
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	defer cancel() // returning cancels the parallel TCP stage below
 
-	sem := make(chan struct{}, c.Concurrency)
-	winner := make(chan Proxy, 1)
-	var wg sync.WaitGroup
+	// Stage 1: parallel TCP checks, emitting connectable proxies on a channel.
+	connectable := c.streamConnectable(ctx, proxies)
 
-	// The launcher itself is tracked by wg so the closer below cannot observe a
-	// zero count and close `winner` before any worker has been registered.
-	wg.Add(1)
+	// Stage 2: verify connectable proxies one at a time. The first that passes
+	// is returned; the deferred cancel then unwinds stage 1.
+	for p := range connectable {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if c.Verifier != nil {
+			if err := c.Verifier.Verify(ctx, p); err != nil {
+				continue
+			}
+		}
+		return &p
+	}
+	return nil
+}
+
+// streamConnectable checks the proxies for TCP connectivity in parallel (bounded
+// by Concurrency) and emits the connectable ones on the returned channel, which
+// is closed once every proxy has been checked or ctx is cancelled. A connectable
+// worker holds its concurrency slot until its result is consumed, which paces the
+// parallel TCP stage to the serial verification stage downstream.
+func (c *Checker) streamConnectable(ctx context.Context, proxies []Proxy) <-chan Proxy {
+	out := make(chan Proxy)
+
 	go func() {
-		defer wg.Done()
+		defer close(out)
+
+		sem := make(chan struct{}, c.Concurrency)
+		var wg sync.WaitGroup
+
 		for _, p := range proxies {
 			select {
 			case <-ctx.Done():
+				wg.Wait()
 				return
 			case sem <- struct{}{}:
 			}
@@ -107,24 +137,16 @@ func (c *Checker) FindFirstWorking(ctx context.Context, proxies []Proxy) *Proxy 
 				if ctx.Err() != nil {
 					return
 				}
-				if c.Usable(ctx, p) {
+				if c.Connectable(ctx, p) {
 					select {
-					case winner <- p:
-						cancel() // stop the rest
-					default: // someone already won
+					case out <- p:
+					case <-ctx.Done():
 					}
 				}
 			}(p)
 		}
-	}()
-
-	go func() {
 		wg.Wait()
-		close(winner)
 	}()
 
-	if p, ok := <-winner; ok {
-		return &p
-	}
-	return nil
+	return out
 }
