@@ -46,6 +46,35 @@ The service refuses to run without them. For **service mode**, set them as
 **machine** environment variables so the service account can read them — they are
 deliberately *not* stored in the service definition.
 
+## Config file (handy for local debugging)
+
+Instead of env vars or flags you can put settings in a JSON file. Copy the
+example and edit it:
+
+```console
+copy config.example.json config.json
+```
+
+`config.json` is loaded automatically from the working directory when present
+(or point at one with `-config path\to\file.json`). It can hold any option,
+including the credentials:
+
+```json
+{
+  "tgApiId": 123456,
+  "tgApiHash": "0123456789abcdef0123456789abcdef",
+  "httpAddr": "127.0.0.1:8080",
+  "pollInterval": "30m",
+  "dialTimeout": "5s",
+  "concurrency": 200
+}
+```
+
+Durations are strings like `"30m"` / `"5s"`. Settings are resolved with the
+precedence **flag > environment variable > config file > built-in default**, so
+a flag always overrides the file. `config.json` is git-ignored (it may contain
+your credentials); `config.example.json` is committed as a template.
+
 ## HTTP API
 
 | Method & path | Description |
