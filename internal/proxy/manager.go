@@ -48,10 +48,15 @@ type Manager struct {
 	checker *Checker
 	log     Logger
 
-	// OnNewProxy, when set, is called whenever the served proxy changes to a
-	// different one (including the first proxy found). It runs on the manager's
-	// goroutine, so it must not block.
-	OnNewProxy func(Proxy)
+	// OpenProxy, when set, surfaces a newly serving proxy (e.g. opens its URL in
+	// a browser). Returning nil means it was opened; a non-nil error means it
+	// should be retried on the next health check (e.g. no user is logged in yet).
+	// It runs on the manager's goroutine, so it must return promptly.
+	OpenProxy func(Proxy) error
+
+	// lastOpenedURL is the URL most recently opened via OpenProxy. It is only
+	// accessed from the Run goroutine, so it needs no locking.
+	lastOpenedURL string
 
 	mu      sync.RWMutex
 	current *Proxy
@@ -86,7 +91,6 @@ func (m *Manager) setCurrent(p *Proxy) {
 // Run blocks until ctx is cancelled, continuously ensuring a working proxy is
 // available. It returns ctx.Err() on shutdown.
 func (m *Manager) Run(ctx context.Context) error {
-	var lastURL string
 	for {
 		p, err := m.findWorking(ctx)
 		if err != nil {
@@ -95,13 +99,7 @@ func (m *Manager) Run(ctx context.Context) error {
 
 		m.setCurrent(p)
 		m.log.Infof("serving working proxy %s", p.Address())
-
-		if p.URL != lastURL {
-			lastURL = p.URL
-			if m.OnNewProxy != nil {
-				m.OnNewProxy(*p)
-			}
-		}
+		m.maybeOpen(*p)
 
 		// Hold this proxy until it stops connecting or we are shut down.
 		if err := m.monitor(ctx, *p); err != nil {
@@ -111,6 +109,21 @@ func (m *Manager) Run(ctx context.Context) error {
 		m.setCurrent(nil)
 		m.log.Warnf("proxy %s stopped responding; searching for a replacement", p.Address())
 	}
+}
+
+// maybeOpen opens the proxy URL via OpenProxy unless it has already been opened.
+// It is safe to call repeatedly: a URL is opened at most once, and a failure
+// (e.g. no user is logged in) leaves it pending so the next health check retries.
+func (m *Manager) maybeOpen(p Proxy) {
+	if m.OpenProxy == nil || p.URL == m.lastOpenedURL {
+		return
+	}
+	if err := m.OpenProxy(p); err != nil {
+		m.log.Infof("deferring browser open for %s: %v", p.Address(), err)
+		return
+	}
+	m.lastOpenedURL = p.URL
+	m.log.Infof("opened proxy %s in browser", p.Address())
 }
 
 // findWorking downloads the list and returns the first connectable proxy. When
@@ -151,7 +164,9 @@ func (m *Manager) findWorking(ctx context.Context) (*Proxy, error) {
 }
 
 // monitor re-verifies the current proxy on an interval and returns nil once it
-// stops connecting, or ctx.Err() on shutdown.
+// stops connecting, or ctx.Err() on shutdown. While the proxy remains healthy it
+// retries opening its URL if that has not yet succeeded (e.g. because no user was
+// logged in when it was first selected).
 func (m *Manager) monitor(ctx context.Context, p Proxy) error {
 	for {
 		if err := sleep(ctx, m.cfg.ValidateInterval); err != nil {
@@ -160,6 +175,7 @@ func (m *Manager) monitor(ctx context.Context, p Proxy) error {
 		if !m.checker.Usable(ctx, p) {
 			return nil
 		}
+		m.maybeOpen(p)
 	}
 }
 

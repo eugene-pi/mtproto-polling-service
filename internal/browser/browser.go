@@ -5,6 +5,13 @@
 // appears on the logged-in user's desktop. See open_windows.go.
 package browser
 
+import "errors"
+
+// ErrNoActiveSession is returned (on Windows, from service/session-0 context)
+// when no user is logged in at the console, so there is no desktop to open the
+// browser on. Callers should treat it as "try again later", not a hard failure.
+var ErrNoActiveSession = errors.New("no active user session")
+
 // Open opens url in the default browser.
 //
 // interactive should be true when the process runs in a normal user session

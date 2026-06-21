@@ -57,7 +57,7 @@ const (
 func openInActiveSession(url string) error {
 	sessionID := windows.WTSGetActiveConsoleSessionId()
 	if sessionID == invalidSessionID {
-		return fmt.Errorf("no active console session (no user is logged in)")
+		return ErrNoActiveSession
 	}
 
 	// Token of the interactive user.

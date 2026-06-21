@@ -61,9 +61,13 @@ browser. How that happens depends on how the program runs:
   currently logged in at the console**, using the Windows token APIs
   (`WTSQueryUserToken` + `CreateProcessAsUser`). LocalSystem holds the privileges
   this requires; running the service under a normal user account would *not* make
-  the browser appear, so keep the default account. If no user is logged in, the
-  open is skipped and logged — the proxy is still served and available on
-  `GET /proxy`.
+  the browser appear, so keep the default account.
+
+If **no user is logged in**, the open is skipped (not an error) and the proxy is
+still served on `GET /proxy`. The URL stays *pending*: on each health re-check
+(`validate-interval`) of a still-healthy proxy, the service retries the open, so
+the browser pops as soon as someone logs in. A given proxy URL is opened at most
+once.
 
 ## Telegram API credentials (required)
 

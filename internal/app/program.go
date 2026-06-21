@@ -77,14 +77,10 @@ func (p *Program) Start(s service.Service) error {
 
 	if p.cfg.OpenBrowser {
 		interactive := service.Interactive()
-		p.manager.OnNewProxy = func(px proxy.Proxy) {
-			// Launch asynchronously so the manager loop is never blocked.
-			go func() {
-				p.log.Infof("opening proxy %s in browser", px.Address())
-				if err := browser.Open(px.URL, interactive); err != nil {
-					p.log.Errorf("failed to open proxy in browser: %v", err)
-				}
-			}()
+		p.manager.OpenProxy = func(px proxy.Proxy) error {
+			// Returns quickly (it only spawns the browser). The manager logs the
+			// outcome and retries on the next health check if this fails.
+			return browser.Open(px.URL, interactive)
 		}
 	}
 
