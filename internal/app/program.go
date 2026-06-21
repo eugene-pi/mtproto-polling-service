@@ -23,6 +23,12 @@ type Config struct {
 	ValidateInterval time.Duration
 	DialTimeout      time.Duration
 	Concurrency      int
+
+	// Telegram API credentials (required). They gate the second-stage check
+	// that confirms a real Telegram client can use the proxy.
+	TGAPIID       int
+	TGAPIHash     string
+	VerifyTimeout time.Duration
 }
 
 // Program implements service.Interface.
@@ -49,9 +55,15 @@ func (p *Program) Start(s service.Service) error {
 	}
 	p.log = newLogger(svcLogger)
 
+	verifier, err := proxy.NewTelegramVerifier(p.cfg.TGAPIID, p.cfg.TGAPIHash, p.cfg.VerifyTimeout)
+	if err != nil {
+		return err
+	}
+
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	source := proxy.NewSource(p.cfg.ListURL, httpClient)
 	checker := proxy.NewChecker(p.cfg.DialTimeout, p.cfg.Concurrency)
+	checker.Verifier = verifier
 	p.manager = proxy.NewManager(proxy.Config{
 		PollInterval:     p.cfg.PollInterval,
 		RetryInterval:    p.cfg.RetryInterval,

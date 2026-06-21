@@ -12,13 +12,23 @@ const (
 	defaultConcurrency = 200
 )
 
-// Checker tests proxies for connectability. A proxy is considered usable if a
-// TCP connection to its host:port can be established within DialTimeout.
+// Verifier performs a deeper, application-level check on a proxy that already
+// passed the TCP-connect stage (e.g. confirming a Telegram client can use it).
+type Verifier interface {
+	Verify(ctx context.Context, p Proxy) error
+}
+
+// Checker tests proxies for usability. A proxy is usable if a TCP connection to
+// its host:port can be established within DialTimeout and, when a Verifier is
+// configured, that verifier also succeeds.
 type Checker struct {
 	// DialTimeout bounds each individual connection attempt.
 	DialTimeout time.Duration
 	// Concurrency bounds how many proxies are dialed at once.
 	Concurrency int
+	// Verifier, when set, is run after a successful TCP connection. It is the
+	// second-stage check (e.g. a real Telegram client connection).
+	Verifier Verifier
 }
 
 // NewChecker returns a Checker with sensible defaults applied for any zero
@@ -47,9 +57,24 @@ func (c *Checker) Connectable(ctx context.Context, p Proxy) bool {
 	return true
 }
 
-// FindFirstWorking dials the proxies in parallel (bounded by Concurrency) and
-// returns the first one that connects. Remaining attempts are cancelled as soon
-// as a winner is found. It returns nil if none connect or ctx is cancelled.
+// Usable reports whether the proxy passes every configured check: it must be
+// TCP-connectable and, if a Verifier is set, pass verification.
+func (c *Checker) Usable(ctx context.Context, p Proxy) bool {
+	if !c.Connectable(ctx, p) {
+		return false
+	}
+	if c.Verifier != nil {
+		if err := c.Verifier.Verify(ctx, p); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// FindFirstWorking checks the proxies in parallel (bounded by Concurrency) and
+// returns the first usable one (see Usable). Remaining attempts are cancelled as
+// soon as a winner is found. It returns nil if none are usable or ctx is
+// cancelled.
 func (c *Checker) FindFirstWorking(ctx context.Context, proxies []Proxy) *Proxy {
 	if len(proxies) == 0 {
 		return nil
@@ -82,7 +107,7 @@ func (c *Checker) FindFirstWorking(ctx context.Context, proxies []Proxy) *Proxy 
 				if ctx.Err() != nil {
 					return
 				}
-				if c.Connectable(ctx, p) {
+				if c.Usable(ctx, p) {
 					select {
 					case winner <- p:
 						cancel() // stop the rest

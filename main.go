@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +27,17 @@ func main() {
 		validateInterval = flag.Duration("validate-interval", 2*time.Minute, "how often to re-verify the current proxy")
 		dialTimeout      = flag.Duration("dial-timeout", 5*time.Second, "per-proxy TCP connect timeout")
 		concurrency      = flag.Int("concurrency", 200, "max proxies dialed in parallel")
+		verifyTimeout    = flag.Duration("verify-timeout", 15*time.Second, "timeout for the Telegram client verification of a proxy")
+		tgAPIID          = flag.Int("tg-api-id", envInt("TG_API_ID"), "Telegram api_id (required; defaults to $TG_API_ID)")
+		tgAPIHash        = flag.String("tg-api-hash", os.Getenv("TG_API_HASH"), "Telegram api_hash (required; defaults to $TG_API_HASH)")
 	)
 	flag.Parse()
+
+	// Telegram credentials are required for the second-stage proxy verification.
+	if *control == "" && (*tgAPIID == 0 || *tgAPIHash == "") {
+		fatalf("Telegram api_id/api_hash are required: set -tg-api-id/-tg-api-hash " +
+			"or the TG_API_ID/TG_API_HASH environment variables (get them from https://my.telegram.org)")
+	}
 
 	prg := app.NewProgram(app.Config{
 		ListURL:          *listURL,
@@ -37,12 +47,19 @@ func main() {
 		ValidateInterval: *validateInterval,
 		DialTimeout:      *dialTimeout,
 		Concurrency:      *concurrency,
+		TGAPIID:          *tgAPIID,
+		TGAPIHash:        *tgAPIHash,
+		VerifyTimeout:    *verifyTimeout,
 	})
 
 	svcConfig := &service.Config{
 		Name:        "MTProtoPollingService",
 		DisplayName: "MTProto Polling Service",
 		Description: "Finds a working Telegram MTProto proxy and serves it over a local HTTP endpoint.",
+		// Note: Telegram credentials are deliberately NOT baked into the service
+		// arguments (they would be stored in the registry in clear text). Set
+		// TG_API_ID / TG_API_HASH as machine environment variables instead so
+		// the service account picks them up.
 		Arguments: []string{
 			"-list-url", *listURL,
 			"-http-addr", *httpAddr,
@@ -50,7 +67,8 @@ func main() {
 			"-retry-interval", retryInterval.String(),
 			"-validate-interval", validateInterval.String(),
 			"-dial-timeout", dialTimeout.String(),
-			"-concurrency", fmt.Sprintf("%d", *concurrency),
+			"-concurrency", strconv.Itoa(*concurrency),
+			"-verify-timeout", verifyTimeout.String(),
 		},
 	}
 
@@ -78,4 +96,14 @@ func main() {
 func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
+}
+
+// envInt reads an integer environment variable, returning 0 when unset or
+// unparsable so it can serve as a flag default.
+func envInt(name string) int {
+	n, err := strconv.Atoi(os.Getenv(name))
+	if err != nil {
+		return 0
+	}
+	return n
 }

@@ -8,12 +8,34 @@ import (
 )
 
 func TestFindFirstWorking(t *testing.T) {
-	// A real listener that accepts connections.
+	reachable := newListener(t)
+
+	checker := NewChecker(time.Second, 10)
+	proxies := []Proxy{
+		// Unreachable: TEST-NET-1 address that should not connect quickly.
+		{Server: "192.0.2.1", Port: 9},
+		reachable,
+	}
+
+	got := checker.FindFirstWorking(context.Background(), proxies)
+	if got == nil {
+		t.Fatal("expected a working proxy, got nil")
+	}
+	if got.Address() != reachable.Address() {
+		t.Fatalf("unexpected winner: %+v", got)
+	}
+}
+
+// newListener starts a TCP listener that accepts and immediately closes
+// connections, and returns a Proxy pointing at it. The listener is closed when
+// the test finishes.
+func newListener(t *testing.T) Proxy {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() { _ = ln.Close() })
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -24,24 +46,8 @@ func TestFindFirstWorking(t *testing.T) {
 		}
 	}()
 
-	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	port := atoiOrZero(portStr)
-
-	checker := NewChecker(time.Second, 10)
-	proxies := []Proxy{
-		// Unreachable: TEST-NET-1 address that should not connect quickly.
-		{Server: "192.0.2.1", Port: 9},
-		// Reachable.
-		{Server: "127.0.0.1", Port: port},
-	}
-
-	got := checker.FindFirstWorking(context.Background(), proxies)
-	if got == nil {
-		t.Fatal("expected a working proxy, got nil")
-	}
-	if got.Server != "127.0.0.1" || got.Port != port {
-		t.Fatalf("unexpected winner: %+v", got)
-	}
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	return Proxy{Server: host, Port: atoiOrZero(portStr)}
 }
 
 func TestFindFirstWorkingNone(t *testing.T) {

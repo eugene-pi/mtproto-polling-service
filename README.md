@@ -11,8 +11,16 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 1. If there is no currently-valid proxy, the service downloads the public proxy
    list from
    [`SoliSpirit/mtproto/all_proxies.txt`](https://github.com/SoliSpirit/mtproto/blob/master/all_proxies.txt).
-2. It checks the proxies **in parallel** and serves the **first one that is
-   connectable** (a TCP connection to `server:port` succeeds).
+2. It checks the proxies **in parallel** and serves the **first usable** one. A
+   proxy is usable when it passes both stages:
+   1. **TCP connect** — a TCP connection to `server:port` succeeds (a fast
+      filter).
+   2. **Telegram check** — a real Telegram client (via
+      [`gotd/td`](https://github.com/gotd/td)) connects to a Telegram data
+      center *through* the proxy, completes the MTProto handshake and makes one
+      unauthenticated call. This proves a Telegram client can actually use the
+      proxy. It uses an in-memory session, so no account, phone number or login
+      code is involved — only an `api_id`/`api_hash`.
 3. If **none** of the proxies work, it waits **30 minutes** and then checks
    whether the published list has changed:
    - if it **changed**, it re-checks the fresh list;
@@ -22,6 +30,21 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 
 Update detection uses an HTTP conditional request (`ETag`) when the server
 supports it, falling back to a SHA-256 comparison of the file contents.
+
+## Telegram API credentials (required)
+
+The second-stage check needs a Telegram `api_id`/`api_hash`. Get them for free
+from [my.telegram.org](https://my.telegram.org) → *API development tools*, then
+provide them via environment variables (preferred) or flags:
+
+```console
+$env:TG_API_ID  = "123456"
+$env:TG_API_HASH = "0123456789abcdef0123456789abcdef"
+```
+
+The service refuses to run without them. For **service mode**, set them as
+**machine** environment variables so the service account can read them — they are
+deliberately *not* stored in the service definition.
 
 ## HTTP API
 
@@ -50,9 +73,11 @@ go build -o mtproto-polling-service.exe .
 
 ## Run as a console app
 
-Just run the binary; it runs interactively and logs to the console:
+Set the credentials, then run the binary; it runs interactively and logs to the
+console:
 
 ```console
+$env:TG_API_ID = "123456"; $env:TG_API_HASH = "..."
 mtproto-polling-service.exe
 ```
 
@@ -86,6 +111,9 @@ mtproto-polling-service.exe -http-addr 127.0.0.1:9000 -poll-interval 30m -servic
 | `-validate-interval` | `2m` | How often the current proxy is re-verified. |
 | `-dial-timeout` | `5s` | Per-proxy TCP connect timeout. |
 | `-concurrency` | `200` | Max proxies dialed in parallel. |
+| `-verify-timeout` | `15s` | Timeout for the Telegram client verification of a proxy. |
+| `-tg-api-id` | `$TG_API_ID` | Telegram `api_id` (required). |
+| `-tg-api-hash` | `$TG_API_HASH` | Telegram `api_hash` (required). |
 
 ## Test
 
