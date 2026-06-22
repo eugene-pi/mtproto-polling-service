@@ -2,12 +2,17 @@
 <!--
   MSI definition for the MTProto Polling Service.
 
-  Build-time variables (passed with `wix build -d Name=Value`):
+  Build-time variable (passed with `wix build -d Name=Value`):
     Version    - product version, e.g. 1.2.3
-    TgApiId    - Telegram api_id    (from the TG_API_ID GitHub secret)
-    TgApiHash  - Telegram api_hash  (from the TG_API_HASH GitHub secret)
 
-  The installer:
+  Install-time properties (passed on the msiexec command line) — REQUIRED:
+    TG_API_ID    - Telegram api_id
+    TG_API_HASH  - Telegram api_hash
+
+      msiexec /i MTProtoPollingService.msi TG_API_ID=12345 TG_API_HASH=abc...
+
+  Credentials are supplied at install time (not baked into the MSI), so the
+  installer contains no secrets and is safe to distribute. The installer:
     * copies mtproto-polling-service.exe into Program Files,
     * sets machine-wide TG_API_ID / TG_API_HASH environment variables,
     * installs and starts the Windows service (running as LocalSystem so it can
@@ -25,6 +30,15 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Credentials provided on the command line. Secure="yes" lets these public
+         properties survive into the elevated install sequence. -->
+    <Property Id="TG_API_ID" Secure="yes" />
+    <Property Id="TG_API_HASH" Secure="yes" />
+
+    <!-- Abort with a helpful message if the credentials were not supplied. -->
+    <Launch Condition="TG_API_ID AND TG_API_HASH"
+            Message="TG_API_ID and TG_API_HASH are required. Install from an elevated prompt, e.g.:  msiexec /i MTProtoPollingService.msi TG_API_ID=12345 TG_API_HASH=your_api_hash" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="MTProto Polling Service">
         <Component Id="ServiceExe" Bitness="always64">
@@ -38,7 +52,7 @@
                           Type="ownProcess"
                           Start="auto"
                           ErrorControl="normal"
-                          Arguments="-tg-api-id $(var.TgApiId) -tg-api-hash $(var.TgApiHash)" />
+                          Arguments="-tg-api-id [TG_API_ID] -tg-api-hash [TG_API_HASH]" />
           <ServiceControl Id="ServiceControl"
                           Name="MTProtoPollingService"
                           Start="install"
@@ -47,9 +61,9 @@
                           Wait="yes" />
 
           <!-- Machine-wide environment variables (removed on uninstall). -->
-          <Environment Id="EnvApiId" Name="TG_API_ID" Value="$(var.TgApiId)"
+          <Environment Id="EnvApiId" Name="TG_API_ID" Value="[TG_API_ID]"
                        Action="set" Part="all" System="yes" />
-          <Environment Id="EnvApiHash" Name="TG_API_HASH" Value="$(var.TgApiHash)"
+          <Environment Id="EnvApiHash" Name="TG_API_HASH" Value="[TG_API_HASH]"
                        Action="set" Part="all" System="yes" />
         </Component>
       </Directory>
