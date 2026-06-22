@@ -78,9 +78,10 @@ func (p *Program) Start(s service.Service) error {
 	if p.cfg.OpenBrowser {
 		interactive := service.Interactive()
 		p.manager.OpenProxy = func(px proxy.Proxy) error {
-			// Returns quickly (it only spawns the browser). The manager logs the
+			// Open the tg:// deep link so Telegram applies the proxy directly.
+			// Returns quickly (it only spawns the handler); the manager logs the
 			// outcome and retries on the next health check if this fails.
-			return browser.Open(px.URL, interactive)
+			return browser.Open(px.TelegramURL(), interactive)
 		}
 	}
 

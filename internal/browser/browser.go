@@ -12,7 +12,8 @@ import "errors"
 // browser on. Callers should treat it as "try again later", not a hard failure.
 var ErrNoActiveSession = errors.New("no active user session")
 
-// Open opens url in the default browser.
+// Open opens url with the OS's default handler for its scheme — a browser for
+// http(s), or the registered app for a custom scheme such as tg:// (Telegram).
 //
 // interactive should be true when the process runs in a normal user session
 // (console mode) and false when it runs as a service. On Windows the two cases

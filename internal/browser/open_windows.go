@@ -11,9 +11,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// rundll32 with FileProtocolHandler hands the URL to the user's default browser.
+// explorer.exe hands the URL to its registered protocol handler — the default
+// browser for http(s), or the Telegram desktop app for tg://. It is more
+// reliable for custom schemes than rundll32's FileProtocolHandler.
 func consoleCommand(url string) (string, []string) {
-	return "rundll32.exe", []string{"url.dll,FileProtocolHandler", url}
+	return "explorer.exe", []string{url}
 }
 
 // open dispatches to the console or service strategy.
@@ -96,7 +98,7 @@ func openInActiveSession(url string) error {
 	defer procDestroyEnvironmentBlock.Call(uintptr(unsafe.Pointer(env)))
 
 	cmdLine, err := windows.UTF16PtrFromString(
-		fmt.Sprintf("rundll32.exe url.dll,FileProtocolHandler %s", url),
+		fmt.Sprintf(`explorer.exe "%s"`, url),
 	)
 	if err != nil {
 		return err
