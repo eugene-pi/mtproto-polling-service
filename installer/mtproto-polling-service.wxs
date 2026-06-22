@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MSI definition for the MTProto Polling Service.
+
+  Build-time variables (passed with `wix build -d Name=Value`):
+    Version    - product version, e.g. 1.2.3
+    TgApiId    - Telegram api_id    (from the TG_API_ID GitHub secret)
+    TgApiHash  - Telegram api_hash  (from the TG_API_HASH GitHub secret)
+
+  The installer:
+    * copies mtproto-polling-service.exe into Program Files,
+    * sets machine-wide TG_API_ID / TG_API_HASH environment variables,
+    * installs and starts the Windows service (running as LocalSystem so it can
+      open the proxy URL in the logged-in user's session). Credentials are also
+      passed as service arguments so the service starts reliably without waiting
+      for the environment change to propagate.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="MTProto Polling Service"
+           Manufacturer="eugene-pi"
+           Version="$(var.Version)"
+           UpgradeCode="B7A1F3C2-9D4E-4F6A-8B2C-1E5D7A9C3F40"
+           Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="MTProto Polling Service">
+        <Component Id="ServiceExe" Bitness="always64">
+          <File Id="ServiceExe" Source="mtproto-polling-service.exe" KeyPath="yes" />
+
+          <!-- Register, start and (on uninstall) remove the service. -->
+          <ServiceInstall Id="ServiceInstall"
+                          Name="MTProtoPollingService"
+                          DisplayName="MTProto Polling Service"
+                          Description="Finds a working Telegram MTProto proxy and serves it over a local HTTP endpoint."
+                          Type="ownProcess"
+                          Start="auto"
+                          ErrorControl="normal"
+                          Arguments="-tg-api-id $(var.TgApiId) -tg-api-hash $(var.TgApiHash)" />
+          <ServiceControl Id="ServiceControl"
+                          Name="MTProtoPollingService"
+                          Start="install"
+                          Stop="both"
+                          Remove="uninstall"
+                          Wait="yes" />
+
+          <!-- Machine-wide environment variables (removed on uninstall). -->
+          <Environment Id="EnvApiId" Name="TG_API_ID" Value="$(var.TgApiId)"
+                       Action="set" Part="all" System="yes" />
+          <Environment Id="EnvApiHash" Name="TG_API_HASH" Value="$(var.TgApiHash)"
+                       Action="set" Part="all" System="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="MTProto Polling Service" Level="1">
+      <ComponentRef Id="ServiceExe" />
+    </Feature>
+  </Package>
+</Wix>

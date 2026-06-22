@@ -1,0 +1,94 @@
+name: Build Windows Installer
+
+# Builds the MSI installer and, on a version tag, attaches it to a GitHub Release.
+# Credentials are read from the TG_API_ID / TG_API_HASH repository secrets and
+# baked into the installer.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (x.y.z) for a manual build"
+        required: false
+        default: "0.0.0"
+
+permissions:
+  contents: write # required to create the Release
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Determine version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $v = '${{ github.event.inputs.version }}'
+            if (-not $v) { $v = '0.0.0' }
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $v"
+
+      - name: Build service binary
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -trimpath -ldflags "-s -w" -o installer/mtproto-polling-service.exe .
+
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Build MSI
+        shell: pwsh
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          if (-not $env:TG_API_ID -or -not $env:TG_API_HASH) {
+            throw "The TG_API_ID and TG_API_HASH repository secrets must be set (Settings -> Secrets and variables -> Actions)."
+          }
+          $msi = "installer/MTProtoPollingService-$('${{ steps.ver.outputs.version }}').msi"
+          wix build installer/mtproto-polling-service.wxs `
+            -arch x64 `
+            -bindpath installer `
+            -d Version='${{ steps.ver.outputs.version }}' `
+            -d TgApiId=$env:TG_API_ID `
+            -d TgApiHash=$env:TG_API_HASH `
+            -o $msi
+          "msi=$msi" >> $env:GITHUB_OUTPUT
+        id: msi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MTProtoPollingService-msi
+          path: ${{ steps.msi.outputs.msi }}
+          if-no-files-found: error
+
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            "${{ steps.msi.outputs.msi }}" `
+            --title $env:GITHUB_REF_NAME `
+            --generate-notes

@@ -132,6 +132,16 @@ $ curl http://127.0.0.1:8080/proxy
 }
 ```
 
+## Install (MSI)
+
+The easiest way to deploy on Windows is the prebuilt MSI from the
+[Releases](https://github.com/eugene-pi/mtproto-polling-service/releases) page. It
+installs the binary, sets the Telegram credentials as machine environment
+variables and installs + starts the service. The MSI is produced by the
+[`Build Windows Installer`](.github/workflows/release-installer.yml) workflow on
+each version tag — see [installer/README.md](installer/README.md) for the
+required `TG_API_ID` / `TG_API_HASH` secrets and how releases are cut.
+
 ## Build
 
 ```console
