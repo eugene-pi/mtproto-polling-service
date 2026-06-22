@@ -15,6 +15,20 @@ func TestParseLine(t *testing.T) {
 	}
 }
 
+func TestTelegramURL(t *testing.T) {
+	p := Proxy{
+		Server: "www.merco-karco.website",
+		Port:   443,
+		Secret: "ee1603abcd",
+		URL:    "https://t.me/proxy?server=www.merco-karco.website&port=443&secret=ee1603abcd",
+	}
+	got := p.TelegramURL()
+	want := "tg://proxy?server=www.merco-karco.website&port=443&secret=ee1603abcd"
+	if got != want {
+		t.Fatalf("TelegramURL = %q, want %q", got, want)
+	}
+}
+
 func TestParseLineTrailingDot(t *testing.T) {
 	got, err := ParseLine("https://t.me/proxy?server=host.example.site.&port=44300&secret=ee00")
 	if err != nil {

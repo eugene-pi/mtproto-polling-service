@@ -6,7 +6,7 @@ import (
 )
 
 func TestConsoleCommandIncludesURL(t *testing.T) {
-	url := "https://t.me/proxy?server=example.com&port=443&secret=ee00"
+	url := "tg://proxy?server=example.com&port=443&secret=ee00"
 	name, args := consoleCommand(url)
 
 	if name == "" {

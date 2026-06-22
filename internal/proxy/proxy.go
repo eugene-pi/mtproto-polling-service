@@ -24,6 +24,14 @@ func (p Proxy) Address() string {
 	return net.JoinHostPort(p.Server, strconv.Itoa(p.Port))
 }
 
+// TelegramURL returns the proxy as a tg:// deep link. Opening it hands the proxy
+// straight to the Telegram desktop app, which applies it to its settings —
+// unlike the https://t.me/proxy form, which opens a web page first.
+func (p Proxy) TelegramURL() string {
+	return fmt.Sprintf("tg://proxy?server=%s&port=%d&secret=%s",
+		url.QueryEscape(p.Server), p.Port, url.QueryEscape(p.Secret))
+}
+
 // ParseLine parses a single `https://t.me/proxy?server=...&port=...&secret=...`
 // link into a Proxy. It returns an error for blank/comment lines or links that
 // are missing a server or a valid port.

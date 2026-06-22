@@ -41,32 +41,35 @@ Implements [issue #1](https://github.com/eugene-pi/mtproto-polling-service/issue
 4. Once a working proxy is found it is served until it stops responding, at which
    point the search starts over.
 5. Whenever the served proxy **changes** (including the first one found), its
-   `t.me/proxy?...` URL is opened in the default browser, so one click adds it to
-   Telegram. This can be turned off with `-open-browser=false`. See
-   [Opening the proxy in a browser](#opening-the-proxy-in-a-browser) for how this
-   works under a Windows service.
+   `tg://proxy?...` deep link is opened, which hands the proxy straight to the
+   Telegram desktop app to apply to its settings. This can be turned off with
+   `-open-browser=false`. See [Applying the proxy in Telegram](#applying-the-proxy-in-telegram)
+   for how this works under a Windows service.
 
 Update detection uses an HTTP conditional request (`ETag`) when the server
 supports it, falling back to a SHA-256 comparison of the file contents.
 
-## Opening the proxy in a browser
+## Applying the proxy in Telegram
 
-When the selected proxy changes, the service opens its URL in the default
-browser. How that happens depends on how the program runs:
+When the selected proxy changes, the service opens its `tg://proxy?...` deep
+link. The OS routes `tg://` to the Telegram desktop app (via `explorer.exe`),
+which prompts to enable the proxy — so it updates Telegram's settings directly
+rather than going through a web page. How the open happens depends on how the
+program runs:
 
-- **Console mode** — the URL is opened in your current session directly.
+- **Console mode** — the link is opened in your current session directly.
 - **Windows service** — a service runs in the isolated *session 0* with no
-  desktop, so it cannot simply launch a browser. Instead the service (running as
-  **LocalSystem**, the default) opens the URL **in the session of the user
+  desktop, so it cannot simply launch an app. Instead the service (running as
+  **LocalSystem**, the default) opens the link **in the session of the user
   currently logged in at the console**, using the Windows token APIs
   (`WTSQueryUserToken` + `CreateProcessAsUser`). LocalSystem holds the privileges
   this requires; running the service under a normal user account would *not* make
-  the browser appear, so keep the default account.
+  it appear, so keep the default account.
 
 If **no user is logged in**, the open is skipped (not an error) and the proxy is
-still served on `GET /proxy`. The URL stays *pending*: on each health re-check
+still served on `GET /proxy`. The link stays *pending*: on each health re-check
 (`validate-interval`) of a still-healthy proxy, the service retries the open, so
-the browser pops as soon as someone logs in. A given proxy URL is opened at most
+Telegram is prompted as soon as someone logs in. A given proxy is opened at most
 once.
 
 ## Telegram API credentials (required)
